@@ -73,6 +73,12 @@ env/
 .venv/
 venv.bak/
 
+# Virtualenv name patterns (catch .venv-hallu-detect and similar)
+.venv*
+venv*
+env*
+.venv-*
+
 # IDEs and editors
 .vscode/
 .idea/
