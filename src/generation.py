@@ -9,8 +9,11 @@ def gen_ollama(prompt: str,
     """
     Call Ollama's HTTP API to generate k samples. No shell quoting issues.
     """
+    # output list
     outs = []
+    # Ollama API endpoint
     url = "http://localhost:11434/api/generate"
+    # Make k requests with varying temperatures
     for i in range(k):
         t = temps[i % len(temps)]
         payload = {

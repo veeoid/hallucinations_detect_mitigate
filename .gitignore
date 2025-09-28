@@ -215,12 +215,8 @@ desktop.ini
 *.swp
 .~lock.*
 
-# Model/data outputs and caches
-data/
-models/
-outputs/
-checkpoints/
-logs/
+# Model/data outputs and caches (no duplicate rules)
+# data/* and !data/qa_mini.csv above ensure the sample dataset remains tracked
 
 # Secrets and keys
 *.pem
