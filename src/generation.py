@@ -4,7 +4,7 @@ import requests
 def gen_ollama(prompt: str,
                model: str = "llama3:instruct",
                k: int = 3,
-               temps = 1.0,
+               temps = (0.6, 0.8, 1.0),
                max_tokens: int = 120) -> List[str]:
     url = "http://localhost:11434/api/generate"
     outs = []
