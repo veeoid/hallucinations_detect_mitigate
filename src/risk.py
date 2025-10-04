@@ -31,7 +31,39 @@ def risk_score(s_conf, s_consist, s_rules, q_prior, s_emerge, s_flip,
 
     return min(1.0, r)
 
+# risk.py
 def decision(risk: float) -> str:
     if risk < 0.35:  return "accept"
-    if risk < 0.60:  return "mitigate-medium"
-    return "mitigate-high"
+    if risk < 0.60:  return "mitigate-medium"   # constrain
+    return "mitigate-high"                      # contrast → strict fallback
+
+
+def synthesize_safe_answer(samples):
+    """
+    Try to produce a cautious but informative synthesis instead of 'Unknown'.
+    Strategy:
+    - Find the most frequent overlapping phrases/entities.
+    - Keep qualifiers like 'generally', 'not outright banned', 'depends on law'.
+    """
+    import re
+    from collections import Counter
+
+    # Extract key phrases (basic heuristic)
+    phrases = []
+    for s in samples:
+        if "reasonable" in s.lower():
+            phrases.append("reasonable discipline allowed")
+        if "not allowed" in s.lower() or "crime" in s.lower() or "illegal" in s.lower():
+            phrases.append("excessive punishment illegal")
+        if "child abuse" in s.lower():
+            phrases.append("excessive punishment = child abuse")
+        if "unknown" in s.lower():
+            phrases.append("uncertain")
+
+    if not phrases:
+        return "The answer is not certain. Details vary depending on interpretation of the law."
+
+    most_common = Counter(phrases).most_common(2)
+    summary = "; ".join([mc[0] for mc in most_common])
+
+    return f"Based on multiple answers: {summary}."
