@@ -20,6 +20,22 @@ def truncate_question(q: str, max_chars: int = 300) -> str:
     last_space = cut.rfind(" ")
     return (cut if last_space < 0 else cut[:last_space]).strip() + " …"
 
+# src/prompting.py
+
+def system_wrap(body: str) -> str:
+    """
+    Lightweight 'system' wrapper for single-string prompts.
+    Works with both chat and completion backends since we pass a flat prompt.
+    """
+    return (
+        "You are a careful, closed-book answer repairer. "
+        "Follow the rules precisely; be concise and avoid speculation.\n\n"
+        "=== TASK ===\n"
+        f"{body}\n"
+        "=== END TASK ===\n"
+    )
+
+
 def make_prompt(question: str) -> str:
     q_trim = truncate_question(question)
     ts = is_time_sensitive(q_trim)

@@ -15,39 +15,30 @@ from typing import List
 import os
 from groq import Groq
 
-def gen_groq(
-    prompt: str,
-    model: str = "openai/gpt-oss-20b",  # or "mixtral-8x7b-32768", etc.
-    k: int = 3,
-    temps = (0.6, 0.8, 1.0),
-    max_tokens: int = 120,
-    stream: bool = False,
-) -> List[str]:
-    """
-    Generate k completions from Groq Chat API.
-    Each with varying temperature. Returns a list of answer strings.
-    """
-    client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+def gen_groq(prompt: str,
+             model: str = "llama-3.1-8b-instant",
+             k: int = 3,
+             temps = 1,
+             max_tokens: int = 120) -> list[str]:
+    api_key = os.getenv("GROQ_API_KEY") or os.getenv("groq_api_key")
+    if not api_key:
+        raise RuntimeError("GROQ_API_KEY env var not set")
+    client = Groq(api_key=api_key)
+
     outs = []
     for i in range(k):
         t = temps[i % len(temps)]
-        completion = client.chat.completions.create(
+        resp = client.chat.completions.create(
             model=model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=float(t),
-            max_completion_tokens=max_tokens,
-            top_p=0.95,
-            stream=stream,
+            messages=[{"role": "user", "content": prompt+ "\n Only respond with the final answer. \n IF YOU ARE UNSURE, RESPOND WITH 'UNKNOWN'."}],
+            temperature=t,
+            max_tokens=max_tokens,
+            top_p=1,
+            stream=False,
         )
-        if stream:
-            # Collect streamed chunks into one string
-            text = ""
-            for chunk in completion:
-                text += chunk.choices[0].delta.content or ""
-            outs.append(text.strip())
-        else:
-            outs.append(completion.choices[0].message.content.strip())
+        outs.append(resp.choices[0].message.content.strip())
     return outs
+
 
 
 # Example non-streaming implementation using environment variable for the API key.

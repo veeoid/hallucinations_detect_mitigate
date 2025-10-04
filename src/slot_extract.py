@@ -82,7 +82,7 @@ def slot_stability_name(
     )
 
     # Use unified generator (respects provider)
-    from generation import gen as gen_any
+    from generation import gen_any
     outs = gen_any(prompt, provider=provider, model=model, k=trials, temps=(0.2,), max_tokens=max_tokens)
     outs = [o.strip().splitlines()[0].strip().strip(".").lower() for o in outs]
     cnt = Counter(outs)
