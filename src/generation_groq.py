@@ -29,18 +29,26 @@ def gen_groq(
     messages = []
     if system:
         messages.append({"role": "system", "content": system})
-    for _ in range(k):
+    for i in range(k): # Looping k times for k samples
         try:
             resp = _client.chat.completions.create(
                 model=model,
                 messages=messages + [{"role": "user", "content": prompt}],
                 temperature=temperature,
-                max_completion_tokens=1000,  # important for Groq
+                max_tokens=max_tokens, # Note: Groq uses max_tokens, not max_completion_tokens
                 top_p=1,
-                stream=False,  # keep it simple & reliable
+                stream=False,
             )
             text = (resp.choices[0].message.content or "").strip()
+
+            # --- DEBUG PRINT STATEMENT ADDED HERE ---
+            print(f"[API Response {i+1}/{k}]: '{text}'")
+            # ----------------------------------------
+
             outs.append(text or "Unknown")
-        except Exception:
+        except Exception as e:
+            # --- DEBUG PRINT FOR ERRORS ---
+            print(f"[API Error {i+1}/{k}]: {e}")
+            # ------------------------------
             outs.append("Unknown")
     return outs

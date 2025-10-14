@@ -2,6 +2,7 @@
 from __future__ import annotations
 from typing import List
 from generation_groq import gen_groq
+from generation_ollama import gen_ollama # Import the new Ollama function
 
 def gen_any(
     prompt: str,
@@ -13,13 +14,27 @@ def gen_any(
     system: str | None = None,
     **_,
 ) -> List[str]:
-    if provider.lower() != "groq":
-        raise RuntimeError(f"Unsupported provider: {provider}")
-    return gen_groq(
-        prompt=prompt,
-        model=model,
-        k=k,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        system=system,
-    )
+    provider_lower = provider.lower()
+    
+    if provider_lower == "groq":
+        return gen_groq(
+            prompt=prompt,
+            model=model,
+            k=k,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            system=system,
+        )
+    # --- ADDED OLLAMA SUPPORT ---
+    elif provider_lower == "ollama":
+        return gen_ollama(
+            prompt=prompt,
+            model=model,
+            k=k,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            system=system,
+        )
+    # ----------------------------
+    else:
+        raise RuntimeError(f"Unsupported provider: {provider}. Use 'groq' or 'ollama'.")
