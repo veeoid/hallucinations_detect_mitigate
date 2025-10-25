@@ -1,55 +1,32 @@
 # src/reality_check.py
 from __future__ import annotations
-import re
 from typing import List
 from generation import gen_any
 
-def _extract_key_concepts(text: str) -> List[str]:
-    """A simple function to extract noun phrases as key concepts."""
-    # This regex is a basic way to find multi-word noun-like phrases.
-    # It looks for sequences of capitalized words or sequences of nouns/adjectives.
-    concepts = re.findall(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*|\b[a-z]+\s+curse\b|\b[a-z]+\s+kiss\b)\b", text)
-    
-    # Filter for concepts that are more than just a single, common word.
-    phrases = [c.strip().lower() for c in concepts if len(c.split()) > 1]
-    
-    # Add some specific single words if they are highly indicative
-    if "fairytale" in text.lower(): phrases.append("fairytale")
-    if "prince" in text.lower(): phrases.append("prince")
-        
-    return list(set(phrases))[:5] # Limit to the top 5 concepts to keep the prompt clean
-
-def is_fictional(question: str, answer: str, provider: str, model: str) -> bool:
+def is_fictional(question: str, provider: str, model: str) -> bool:
     """
-    Checks if an answer is likely based on fictional concepts.
-    Returns True if the answer is likely fictional, False otherwise.
+    This new version abandons keyword matching in favor of a more robust,
+    prompt-based classification of the question's domain.
     """
-    concepts = _extract_key_concepts(answer)
     
-    # If we can't extract any meaningful concepts, assume it's not fictional.
-    if not concepts:
-        return False
-
-    concept_list = ", ".join([f'"{c}"' for c in concepts])
-    
+    # This prompt asks the LLM to categorize the question, which is a more reliable
+    # method than simple keyword searching.
     prompt = f"""
-You are a fact-checker distinguishing reality from fiction.
-Consider the main ideas in the following answer. Are these ideas primarily associated with real-world, factual events, or are they primarily associated with fictional stories, myths, and fairytales?
+You are an expert in categorizing questions. Your task is to determine if the following question belongs to a domain of fiction, mythology, or the supernatural.
 
-Answer the question with a single word: "Real" or "Fictional".
+Categorize the question into one of the following:
+- "Fictional": If the question is about concepts from stories, folklore, myths, magic, or supernatural beings (e.g., vampires, witches, fairy tales).
+- "Factual": If the question is about real-world topics like science, history, culture, health, or general knowledge.
 
 Question: "{question}"
-Answer: "{answer}"
-Key Concepts: {concept_list}
 
-Analysis:
+Category (Fictional or Factual):
 """
 
-    # We poll the model a few times to get a consensus on the check.
     responses = gen_any(prompt, provider=provider, model=model, k=3, max_tokens=5)
     
-    # Count the votes
+    # We check for a consensus among the responses.
     fictional_votes = sum(1 for r in responses if "fictional" in r.lower())
     
-    # If a majority of responses agree it's fictional, return True.
+    # The premise is only considered fictional if there is a clear majority vote.
     return fictional_votes >= 2
