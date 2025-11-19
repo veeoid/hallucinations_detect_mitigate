@@ -4,11 +4,17 @@ from prompting import system_wrap
 from generation import gen_any
 import re
 
+# NEW: live, legal retrieval (Wikipedia + DuckDuckGo Instant Answer)
+from retrieval_live import retrieve_live_context  # (src/retrieval_live.py)
+
+# ---------------------------
+# Proposer / Skeptic (existing)
+# ---------------------------
+
 def _prompt_proposer(q: str, samples: List[str]) -> str:
     unique_samples = sorted(list(set(s.strip().rstrip('.') for s in samples if s and len(s) > 10)))
     if not unique_samples:
         unique_samples = sorted(list(set(s.strip().rstrip('.') for s in samples if s)))
-        
     candidate_list = "\n".join(f"- \"{s}\"" for s in unique_samples)
 
     return system_wrap(f"""
@@ -27,8 +33,7 @@ Best Answer:
 
 def _prompt_skeptic_final(q: str, proposed_answer: str) -> str:
     """
-    This is the final, hardened skeptic prompt. It is maximally restrictive
-    to prevent the model from hallucinating reasons to reject a correct answer.
+    Final, hardened skeptic. Intentionally binary to avoid overexplaining.
     """
     return system_wrap(f"""
 You are a meticulous fact-checker. Your only goal is to determine if the proposed answer is factually correct.
@@ -53,18 +58,108 @@ def _clean_final_answer(text: str) -> str:
     cleaned = re.sub(r'^\s*[\d\.\-]+\s*', '', text).strip()
     return cleaned
 
-def mitigate(question: str,
-             base_answer: str,
-             samples: List[str],
-             severity: str,
-             provider: str,
-             model: str) -> str:
+# ---------------------------
+# RAG-aware prompts (NEW)
+# ---------------------------
+
+def _prompt_rag_answer(q: str, sources_block: str) -> str:
     """
-    The final, hardened mitigation function using a Proposer/Skeptic debate.
+    Strict 'cite-or-abstain' mitigation prompt for grounded answers.
     """
+    return system_wrap(f"""
+Answer strictly using ONLY the sources below. If the sources do not support a factual answer, reply exactly 'Unknown'.
+Use one or two sentences and include inline citations like [1], [2] that refer to the source indices provided.
+
+Question:
+{q}
+
+SOURCES:
+{sources_block}
+
+Answer:
+""")
+
+def _has_citation(s: str) -> bool:
+    return bool(re.search(r'\[[0-9]+\]', s))
+
+# ---------------------------
+# Public API
+# ---------------------------
+
+def mitigate(
+    question: str,
+    base_answer: str,
+    samples: List[str],
+    severity: str,
+    provider: str,
+    model: str,
+    use_rag: bool = False,
+    rag_mode: str = "local",         # "local" or "live" (we only implement "live" here)
+    rag_corpus_dir: str = "data/corpus"  # kept for signature compatibility
+) -> str:
+    """
+    Final mitigation with optional real-time RAG.
+
+    Defaults to your existing closed-book Proposer/Skeptic flow.
+    If use_rag and rag_mode == "live":
+      - fetch short legal summaries (Wikipedia REST, DuckDuckGo Instant Answer)
+      - force a 'cite-or-abstain' answer with inline [1], [2] citations
+      - validate presence of citations; if missing, return 'Unknown'
+      - still pass through the Skeptic gate for safety
+    """
+
+    # Fast-path: low severity → keep head answer
     if severity == 'low':
         return base_answer
 
+    # ---------------------------
+    # RAG-LIVE BRANCH (optional)
+    # ---------------------------
+    if use_rag and rag_mode == "live" and retrieve_live_context is not None:
+        print("[INFO] Using RAG-LIVE mitigation flow...")
+        ctx = retrieve_live_context(question, top_k=2, timeout=10.0)  # [(src, snippet), ...]
+        if ctx:
+            # Build numbered source block
+            sources_block = "\n\n".join(
+                f"[{i+1}] {src}\n{snippet}" for i, (src, snippet) in enumerate(ctx)
+            )
+
+            print(f'[TRACE] With retrieved contexts, building RAG prompt:\n{sources_block}\n')
+            print(f"[TRACE] Generating RAG answer for question: \"{question}\"")
+
+            rag_prompt = _prompt_rag_answer(question, sources_block)
+            rag_answer = gen_any(
+                rag_prompt, provider=provider, model=model, k=1, max_tokens=160
+            )[0].strip()
+
+            print(f"[TRACE] RAG Answer: \"{rag_answer}\"")
+
+            # Normalize and validate
+            if not rag_answer:
+                return "Unknown"
+            if rag_answer.strip().lower() == "unknown":
+                return "Unknown"
+            if not _has_citation(rag_answer):
+                # No inline citations → do not trust grounded rewrite
+                return "Unknown"
+
+            # Skeptic pass (final sanity)
+            sk = gen_any(
+                _prompt_skeptic_final(question, rag_answer),
+                provider=provider, model=model, k=1, max_tokens=3
+            )[0].strip().lower()
+
+            if "yes" in sk:
+                return _clean_final_answer(rag_answer)
+            else:
+                return "Unknown"
+
+        # No live context within time budget → abstain (safer than guessing)
+        return "Unknown"
+
+    # ------------------------------------
+    # CLOSED-BOOK BRANCH (existing logic)
+    # ------------------------------------
     proposer_prompt = _prompt_proposer(question, samples)
     proposed_answer = gen_any(
         proposer_prompt,
@@ -84,10 +179,11 @@ def mitigate(question: str,
         model=model,
         k=1,
         max_tokens=3
-    )[0].strip()
+    )[0].strip().lower()
 
-    if "yes" in skeptic_analysis.lower():
+    if "yes" in skeptic_analysis:
         return _clean_final_answer(proposed_answer)
     else:
+        # Keep this trace for debugging; final answer remains 'Unknown'
         print(f"[TRACE] Skeptic rejected the answer. Analysis: \"{skeptic_analysis}\"")
         return "Unknown"

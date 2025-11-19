@@ -1,12 +1,11 @@
 # src/semantic_entropy.py
-# -*- coding: utf-8 -*-
 """
 Soft clustering based on semantic similarity using sentence embeddings.
 """
 from typing import List, Tuple
 import numpy as np
 from sklearn.cluster import AgglomerativeClustering
-
+from sentence_transformers import SentenceTransformer
 # Lazy loader for the sentence transformer model to avoid loading it on every import
 _model = None
 
@@ -15,9 +14,8 @@ def _get_model():
     global _model
     if _model is None:
         try:
-            from sentence_transformers import SentenceTransformer
             # Using a small, fast model suitable for this task
-            _model = SentenceTransformer("all-MiniLM-L6-v2")
+            _model = SentenceTransformer("sentence-transformers/all-mpnet-base-v2")
         except ImportError:
             raise ImportError("SentenceTransformers is not installed. Please run 'pip install sentence-transformers'.")
     return _model
