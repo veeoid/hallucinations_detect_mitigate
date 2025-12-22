@@ -1,47 +1,40 @@
 # src/generation.py
-import os
-import requests
+from __future__ import annotations
+from typing import List
 from generation_groq import gen_groq
+from generation_ollama import gen_ollama # Import the new Ollama function
 
-def gen_ollama(prompt: str,
-               model: str = "llama3:instruct",
-               k: int = 3,
-               temps = (0.6, 0.8, 1.0),
-               max_tokens: int = 120) -> list[str]:
-    """Call Ollama's HTTP API to generate k samples."""
-    outs = []
-    url = "http://localhost:11434/api/generate"
-    for i in range(k):
-        t = temps[i % len(temps)]
-        payload = {
-            "model": model,
-            "prompt": prompt,
-            "options": {"temperature": t, "top_p": 0.95, "num_predict": max_tokens},
-            "stream": False
-        }
-        r = requests.post(url, json=payload, timeout=300)
-        r.raise_for_status()
-        data = r.json()
-        outs.append((data.get("response") or "").strip())
-    return outs
-
-def gen_any(prompt: str,
-            provider: str = "ollama",
-            model: str = "llama3:instruct",
-            k: int = 3,
-            temps = (0.6, 0.8, 1.0),
-            max_tokens: int = 120) -> list[str]:
-    """
-    Provider-agnostic generator used by runner & mitigation.
-    provider: 'ollama' or 'groq'
-    """
-    provider = (provider or "ollama").lower()
-    if provider == "ollama":
-        return gen_ollama(prompt, model=model, k=k, temps=temps, max_tokens=max_tokens)
-    elif provider == "groq":
-        # Ensure API key exists to give a clearer error if not.
-        if not (os.getenv("GROQ_API_KEY") or os.getenv("groq_api_key")):
-            raise RuntimeError("GROQ_API_KEY env var not set")
-        return gen_groq(prompt, model=model, k=k, temps=temps, max_tokens=max_tokens)
+def gen_any(
+    prompt: str,
+    provider: str,
+    model: str,
+    k: int = 3,
+    max_tokens: int = 96,
+    temperature: float = 0.6,
+    system: str | None = None,
+    **_,
+) -> List[str]:
+    provider_lower = provider.lower()
+    
+    if provider_lower == "groq":
+        return gen_groq(
+            prompt=prompt,
+            model=model,
+            k=k,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            system=system,
+        )
+    # --- ADDED OLLAMA SUPPORT ---
+    elif provider_lower == "ollama":
+        return gen_ollama(
+            prompt=prompt,
+            model=model,
+            k=k,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            system=system,
+        )
+    # ----------------------------
     else:
-        raise ValueError(f"Unknown provider: {provider}")
+        raise RuntimeError(f"Unsupported provider: {provider}. Use 'groq' or 'ollama'.")

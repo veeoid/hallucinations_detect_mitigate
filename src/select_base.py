@@ -1,26 +1,58 @@
-# src/select_base.py
-from semantic_entropy import cluster_by_meaning
+# -*- coding: utf-8 -*-
+"""
+Pure string utilities for normalization / entropy / similarity.
+No external dependencies.
+"""
 
-UNKNOWNISH = ("unknown", "n/a", "idk", "i don't know", "not sure")
+import math
+import re
+from collections import Counter
+from typing import List
 
-def _is_unknownish(s: str) -> bool:
-    s = (s or "").strip().lower()
-    return s.startswith("unknown") or any(u in s for u in UNKNOWNISH)
 
-def choose_base_answer(samples, cos_thresh=0.85):
-    clusters = cluster_by_meaning(samples, cos_thresh)
-    if not clusters:
-        return -1, "Unknown.", True
+_WHITES = re.compile(r"\s+")
+_PUNCT  = re.compile(r"[^\w\s\-']")
 
-    cluster = max(clusters, key=len)
-    base_idx = cluster[0]
-    base_answer = (samples[base_idx] or "").strip()
+def normalize_short(s: str) -> str:
+    """Lowercase, strip punctuation (keep hyphen/apostrophe), collapse whitespace."""
+    if not s:
+        return ""
+    s = s.strip()
+    # drop common wrappers like quotes, trailing periods
+    s = s.strip(" \"'`“”’.,;:!?()[]{}<>")
+    s = s.lower()
+    s = _PUNCT.sub(" ", s)
+    s = _WHITES.sub(" ", s).strip()
+    return s
 
-    if _is_unknownish(base_answer):
-        # if *all* are unknown-ish, accept Unknown (no mitigation needed)
-        if all(_is_unknownish(s) for s in samples):
-            return base_idx, "Unknown.", False
-        # otherwise force mitigation attempt to try repairing
-        return base_idx, base_answer, True
 
-    return base_idx, base_answer, False
+def is_unknownish(s: str) -> bool:
+    if not s:
+        return True
+    s = s.strip().lower()
+    return bool(re.match(r"^(unknown|i( do)?n'?t know|not sure|no idea|unsure)$", s))
+
+
+def shannon_entropy(strings: List[str]) -> float:
+    """Entropy of the distribution over unique strings, in nats normalized to [0,1] by ln(K)."""
+    if not strings:
+        return 0.0
+    counts = Counter(strings)
+    total = sum(counts.values())
+    probs = [c / total for c in counts.values()]
+    H = -sum(p * math.log(p) for p in probs if p > 0)
+    K = max(1, len(counts))
+    return float(H / math.log(K))
+
+
+def jaccard_sim(a: str, b: str) -> float:
+    """Jaccard over word sets after normalization."""
+    a = set(normalize_short(a).split())
+    b = set(normalize_short(b).split())
+    if not a and not b:
+        return 1.0
+    if not a or not b:
+        return 0.0
+    inter = len(a & b)
+    union = len(a | b)
+    return inter / union

@@ -2,22 +2,12 @@
 """
 General-purpose, domain-agnostic plausibility checks and priors.
 No dataset-specific templates; closed-book friendly.
-
-Exports:
-- rules_score(answer) -> float in [0,1]
-- question_prior_risk(question) -> float in [0,1]
-- entity_emergence_penalty(question, answer) -> float in [0,1]
-- nonsense_prior(question) -> float in [0,1]
-- time_sensitive_prior(question) -> float in [0,1]
-- missing_time_anchor_penalty(question, answer) -> float in [0,1]
 """
 
 import re
 from datetime import datetime
 
-# -------------------------------
 # Regex primitives
-# -------------------------------
 YEAR_MIN, YEAR_MAX = 1800, datetime.now().year + 1
 YEAR_RX = re.compile(r"\b(1[89]\d{2}|20\d{2}|21\d{2})\b")
 NUM_RX  = re.compile(r"[-+]?\d+(?:\.\d+)?")
@@ -32,6 +22,10 @@ ABSOLUTE_CLAIMS = [
     r"\b(works|correct|successful)\s+100%\b",
     r"\b(cures\s+all|fixes\s+everything)\b",
 ]
+
+# A more general regex to detect questions about quotes
+_QUOTE_Q_RX = re.compile(r'\b(who said|quote|attributed to)\b|["\']', re.I)
+
 
 # Superlatives (question prior; general)
 _SUPER_RX = re.compile(
@@ -54,9 +48,7 @@ _GIB_REPEAT   = re.compile(r'(.)\1{3,}', re.I)     # any char repeated ≥4 (e.g
 _ONLY_LETTERS = re.compile(r'^[a-z]+$', re.I)
 
 
-# -------------------------------
 # Helper extractors
-# -------------------------------
 def _extract_names(text: str) -> set[str]:
     names = set()
     for m in _NAME_RX.finditer(text or ""):
@@ -67,9 +59,7 @@ def _extract_names(text: str) -> set[str]:
     return names
 
 
-# -------------------------------
 # Answer-level RULES (domain-agnostic)
-# -------------------------------
 def year_out_of_range(text: str) -> int:
     return sum(1 for y in map(int, YEAR_RX.findall(text or "")) if y < YEAR_MIN or y > YEAR_MAX)
 
@@ -92,23 +82,34 @@ def suspicious_big_numbers(text: str) -> int:
 def absolute_claims(text: str) -> int:
     return sum(1 for p in ABSOLUTE_CLAIMS if re.search(p, text or "", flags=re.I))
 
-def rules_score(answer: str) -> float:
+def suspicious_quote_attribution(question: str, answer: str) -> int:
+    """
+    Penalizes answers that attribute a quote to a specific person,
+    as this is a common hallucination pattern.
+    """
+    is_quote_question = bool(_QUOTE_Q_RX.search(question or ""))
+    has_name_in_answer = bool(_extract_names(answer or ""))
+
+    if is_quote_question and has_name_in_answer:
+        return 1
+    return 0
+
+def rules_score(answer: str, question: str = "") -> float:
     """
     Map rule triggers to normalized risk in [0,1].
-    Each trigger contributes +0.2; capped at 1.0.
     """
     flags = (
         year_out_of_range(answer)
         + contradictory_years(answer)
         + suspicious_big_numbers(answer)
         + absolute_claims(answer)
+        + suspicious_quote_attribution(question, answer)
     )
-    return min(1.0, flags * 0.2)
+    # Increased the penalty per flag to make the rules more impactful
+    return min(1.0, flags * 0.4)
 
 
-# -------------------------------
 # Question priors (general)
-# -------------------------------
 def question_prior_risk(question: str) -> float:
     """Superlatives and 'winner/only/first' style prompts push models to guess."""
     s = 0.0
@@ -130,7 +131,6 @@ def nonsense_prior(question: str) -> float:
 def time_sensitive_prior(question: str) -> float:
     """
     Boost risk for queries likely to have changed recently (recency phrasing or volatile topics).
-    Domain-agnostic: we don't assert the fact, just the query structure is risky for closed-book.
     """
     s = 0.0
     if TIME_SENSITIVE_Q.search(question or ""):
@@ -140,9 +140,7 @@ def time_sensitive_prior(question: str) -> float:
     return min(1.0, s)
 
 
-# -------------------------------
 # Entity emergence (fabrication cue)
-# -------------------------------
 def entity_emergence_penalty(question: str, answer: str) -> float:
     """
     Penalize when answer invents new named entities not present in the question.
@@ -152,16 +150,14 @@ def entity_emergence_penalty(question: str, answer: str) -> float:
     new_names = [n for n in a_names if n not in q_names]
     if not new_names:
         return 0.0
-    return min(1.0, 0.5 + 0.25 * (len(new_names) - 1))  # 0.5 first, +0.25 each
+    return min(1.0, 0.5 + 0.25 * (len(new_names) - 1))
 
 
-# -------------------------------
 # Time anchor penalty (answer-level)
-# -------------------------------
 def missing_time_anchor_penalty(question: str, answer: str) -> float:
     """
     If the question is time-sensitive but the answer lacks an explicit year/date,
-    penalize. This is structural, not topical.
+    penalize.
     """
     if time_sensitive_prior(question) < 0.4:
         return 0.0

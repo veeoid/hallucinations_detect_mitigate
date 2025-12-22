@@ -41,6 +41,7 @@ def make_prompt(question: str) -> str:
     ts = is_time_sensitive(q_trim)
 
     rules = [
+        "Do NOT return empty strings.",
         "Answer in ONE sentence. Be precise.",
         "Do NOT introduce new names/dates unless present in the question.",
         "If unsure, output exactly: Unknown.",

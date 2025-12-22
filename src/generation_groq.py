@@ -1,58 +1,54 @@
 # src/generation_groq.py
-import os, requests
-from dotenv import load_dotenv
-load_dotenv()  # will read .env in your project root
-
-
-# NOTE: Groq uses an OpenAI-compatible Chat Completions API.
-# Model IDs can vary; examples include "llama3-8b-8192" or "mixtral-8x7b-32768".
-# Set GROQ_API_KEY in your environment.
-
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-
-# src/generation_groq.py
-from typing import List
+from __future__ import annotations
 import os
+from typing import List
+from dotenv import load_dotenv
 from groq import Groq
 
-def gen_groq(prompt: str,
-             model: str = "llama-3.1-8b-instant",
-             k: int = 3,
-             temps = 1,
-             max_tokens: int = 120) -> list[str]:
-    api_key = os.getenv("GROQ_API_KEY") or os.getenv("groq_api_key")
-    if not api_key:
-        raise RuntimeError("GROQ_API_KEY env var not set")
-    client = Groq(api_key=api_key)
+load_dotenv()  # read .env so GROQ_API_KEY is available
 
-    outs = []
-    for i in range(k):
-        t = temps[i % len(temps)]
-        resp = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt+ "\n Only respond with the final answer. \n IF YOU ARE UNSURE, RESPOND WITH 'UNKNOWN'."}],
-            temperature=t,
-            max_tokens=max_tokens,
-            top_p=1,
-            stream=False,
-        )
-        outs.append(resp.choices[0].message.content.strip())
+# One global client; simple & fast
+_api_key = os.getenv("GROQ_API_KEY") or os.getenv("groq_api_key")
+_client = Groq(api_key=_api_key) if _api_key else Groq()
+
+def gen_groq(
+    prompt: str,
+    model: str = "openai/gpt-oss-20b",
+    k: int = 3,
+    temperature: float = 0.6,
+    max_tokens: int = 96,
+    system: str | None = None,
+) -> List[str]:
+    """
+    Minimal Groq generator (non-stream). Returns k short strings.
+    - Uses max_completion_tokens (Groq's param).
+    - No 'UNKNOWN' instruction; just returns whatever the model says.
+    - If the API returns empty, we return 'Unknown' once as a safety net.
+    """
+    outs: List[str] = []
+    messages = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    for i in range(k): # Looping k times for k samples
+        try:
+            resp = _client.chat.completions.create(
+                model=model,
+                messages=messages + [{"role": "user", "content": prompt}],
+                temperature=temperature,
+                max_tokens=max_tokens, # Note: Groq uses max_tokens, not max_completion_tokens
+                top_p=1,
+                stream=False,
+            )
+            text = (resp.choices[0].message.content or "").strip()
+
+            # --- DEBUG PRINT STATEMENT ADDED HERE ---
+            print(f"[API Response {i+1}/{k}]: '{text}'")
+            # ----------------------------------------
+
+            outs.append(text or "Unknown")
+        except Exception as e:
+            # --- DEBUG PRINT FOR ERRORS ---
+            print(f"[API Error {i+1}/{k}]: {e}")
+            # ------------------------------
+            outs.append("Unknown")
     return outs
-
-
-
-# Example non-streaming implementation using environment variable for the API key.
-# Keep secrets out of code; set GROQ_API_KEY in your environment (or CI secrets).
-# def gen_groq(
-#     prompt: str,
-#     model: str = "openai/gpt-oss-20b",
-#     k: int = 3,
-#     temps = (0.6, 0.8, 1.0),
-#     max_tokens: int = 120,
-#     timeout: int = 60,
-# ) -> list[str]:
-#     api_key = os.getenv("GROQ_API_KEY")
-#     if not api_key:
-#         raise RuntimeError("Set GROQ_API_KEY to use Groq provider.")
-#     # ... perform requests with Authorization: Bearer <api_key> ...
-#     return []

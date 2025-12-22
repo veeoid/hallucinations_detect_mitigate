@@ -82,3 +82,4 @@ This README is a quick-start. If you want, I can:
 - Create a minimal `requirements-min.txt` with only direct dependencies.
 - Add a small stub mode to `generation.py` to run the runner without Ollama.
 
+# UnitConverter Project
