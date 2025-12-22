@@ -12,7 +12,7 @@ import math  # for entropy calc
 from generation import gen_any
 from risk import classify_risk
 from semantic_entropy import cluster_strings_soft
-from reality_check import is_fictional
+from reality_check import reality_mismatch
 from mitigation import mitigate
 from negation_probe import negation_flip_score  # PQPF on the original question
 from rules import rules_score
@@ -170,9 +170,7 @@ def get_decision_and_metrics(
     largest_lab, _ = label_counts.most_common(1)[0]
     largest_idxs = cluster_to_idxs[largest_lab]
 
-    
     majority_in_cluster = C(non_refusal_values[i] for i in largest_idxs).most_common(1)[0][0]
-
     head_answer = majority_in_cluster
 
     head_cluster_size = len(largest_idxs)
@@ -192,7 +190,7 @@ def get_decision_and_metrics(
 
     # --- Negation probe: PQPF on the original question ---
     try:
-        negation_score = negation_flip_score(question, head_answer,provider, model)
+        negation_score = negation_flip_score(question, head_answer, provider, model)
         # 0.0 consistent, 1.0 inconsistent, 0.5 neutral
     except Exception as e:
         print(f"[TRACE] Warning: negation probe failed with error: {e!r}. Using neutral 0.0 penalty.")
@@ -238,11 +236,11 @@ def get_decision_and_metrics(
     # Risk-aware thresholding (stricter for high-risk questions)
     risk_tier = classify_risk(question)
     if risk_tier == "high":
-        accept_threshold = 0.70
-    elif risk_tier == "medium":
         accept_threshold = 0.60
+    elif risk_tier == "medium":
+        accept_threshold = 0.45
     else:
-        accept_threshold = 0.55
+        accept_threshold = 0.30
 
     metrics["risk_tier"] = risk_tier
     metrics["confidence"] = round(final_confidence, 3)
@@ -260,7 +258,6 @@ def get_decision_and_metrics(
     )
 
     return decision, metrics
-
 
 
 def run_single_trace(args):
@@ -286,31 +283,33 @@ def run_single_trace(args):
     before_answer = metrics.get('head', 'Unknown')
 
     print("\n[TRACE] Stage 3: Reality Check")
-    fictional_override = is_fictional(question, args.provider, args.model)
+    mismatch, q_type, a_mode = reality_mismatch(
+        question,
+        before_answer,
+        provider=args.provider,
+        model=args.model,
+    )
 
-    if fictional_override:
-        print("[TRACE] >>> Reality Check FAILED: Question premise appears to be fictional. Overriding to REVIEW.")
+    if mismatch:
+        print(f"[TRACE] >>> Reality mismatch: Question={q_type}, AnswerMode={a_mode}. Forcing REVIEW.")
         decision = "REVIEW"
     else:
-        print("[TRACE] >>> Reality Check PASSED.")
+        print(f"[TRACE] >>> Reality check passed. Question={q_type}, AnswerMode={a_mode}.")
 
     print("\n[TRACE] Stage 4: Mitigation")
-    if fictional_override:
-        print("[TRACE] Action: Question flagged as fictional. Generating a direct refutation.")
-        final_text = "The premise of your question is based on fictional concepts."
-    elif decision == "REVIEW":
+    if decision == "REVIEW":
         print(f"[TRACE] Action: Decision is 'REVIEW'. Attempting to mitigate...")
         final_text = mitigate(
-                            question=question,
-                            base_answer=before_answer,
-                            samples=raw_samples,
-                            severity=classify_risk(question),
-                            provider=args.provider,
-                            model=args.model,
-                            use_rag=args.rag,
-                            rag_mode=args.rag_mode,
-                            rag_corpus_dir=args.rag_corpus
-                        )
+            question=question,
+            base_answer=before_answer,
+            samples=raw_samples,
+            severity=classify_risk(question),
+            provider=args.provider,
+            model=args.model,
+            use_rag=args.rag,
+            rag_mode=args.rag_mode,
+            rag_corpus_dir=args.rag_corpus
+        )
     else:  # decision == "ACCEPT"
         print("[TRACE] Action: Decision is 'ACCEPT'. Passing the head answer through.")
         final_text = before_answer
@@ -319,8 +318,6 @@ def run_single_trace(args):
     print("= Final Output")
     print("="*50)
     final_decision_text = f"Final Decision: {decision}"
-    if fictional_override:
-        final_decision_text += " (Overridden by Reality Check)"
     print(final_decision_text)
     print(f"Most Common Answer (Before): \"{before_answer}\"")
     print(f"Returned Answer (After): \"{final_text}\"")
@@ -350,28 +347,32 @@ def run_full_benchmark(args):
             decision, metrics = get_decision_and_metrics(question, raw_samples, args.provider, args.model)
             before_answer = metrics.get('head', 'Unknown')
 
-            fictional_override = is_fictional(question, args.provider, args.model)
-            if fictional_override:
+            mismatch, q_type, a_mode = reality_mismatch(
+                question,
+                before_answer,
+                provider=args.provider,
+                model=args.model,
+            )
+
+            if mismatch:
                 decision = "REVIEW"
 
-            if fictional_override:
-                final_text = "The premise of your question is based on fictional concepts."
-            elif decision == "REVIEW":
+            if decision == "REVIEW":
                 final_text = mitigate(
-                            question=question,
-                            base_answer=before_answer,
-                            samples=raw_samples,
-                            severity=classify_risk(question),
-                            provider=args.provider,
-                            model=args.model,
-                            use_rag=args.rag,
-                            rag_mode=args.rag_mode,
-                            rag_corpus_dir=args.rag_corpus
-                        )
+                    question=question,
+                    base_answer=before_answer,
+                    samples=raw_samples,
+                    severity=classify_risk(question),
+                    provider=args.provider,
+                    model=args.model,
+                    use_rag=args.rag,
+                    rag_mode=args.rag_mode,
+                    rag_corpus_dir=args.rag_corpus
+                )
             else:
                 final_text = before_answer
 
-            final_decision_text = f"{decision}{' (Overridden)' if fictional_override else ''}"
+            final_decision_text = decision
             writer.writerow([question, before_answer, final_decision_text, final_text, metrics.get('confidence', 0.0)])
             print(f"Before: '{before_answer}' -> After: '{final_text}' (Decision: {final_decision_text})")
 
@@ -388,7 +389,7 @@ def main():
     ap.add_argument("--idx", type=int, help="(Optional) Specify a single question index to trace for debugging.")
     ap.add_argument("--limit", type=int, help="(Optional) Limit the benchmark to the first N questions.")
     ap.add_argument("--rag", action="store_true", help="Enable optional RAG grounding for mitigation.")
-    ap.add_argument("--rag_mode", type=str, default="local", choices=["local","live"], help="RAG mode: local or live.")
+    ap.add_argument("--rag_mode", type=str, default="local", choices=["local", "live"], help="RAG mode: local or live.")
     ap.add_argument("--rag_corpus", type=str, default="data/corpus", help="Directory for local RAG corpus (if rag_mode=local).")
 
     args = ap.parse_args()
@@ -397,6 +398,7 @@ def main():
         run_single_trace(args)
     else:
         run_full_benchmark(args)
+
 
 if __name__ == "__main__":
     main()

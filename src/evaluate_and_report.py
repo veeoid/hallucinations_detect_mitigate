@@ -117,8 +117,34 @@ def generate_report(ground_truth_file: str, baseline_results_file: str, pipeline
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Evaluate hallucination detection and mitigation pipeline"
+    )
+
+    parser.add_argument(
+        "--ground_truth",
+        default="data/qa_ground_truth.csv",
+        help="Path to ground truth CSV",
+    )
+    parser.add_argument(
+        "--baseline",
+        default="data/baseline_benchmark_results.csv",
+        help="Path to baseline results CSV",
+    )
+    parser.add_argument(
+        "--input",
+        "--pipeline",
+        dest="pipeline_results_file",
+        default="data/benchmark_results.csv",
+        help="Path to pipeline results CSV",
+    )
+
+    args = parser.parse_args()
+
     generate_report(
-        ground_truth_file='data/qa_ground_truth.csv',
-        baseline_results_file='data/baseline_benchmark_results.csv',
-        pipeline_results_file='data/benchmark_results.csv'
+        ground_truth_file=args.ground_truth,
+        baseline_results_file=args.baseline,
+        pipeline_results_file=args.pipeline_results_file,
     )
