@@ -58,28 +58,4 @@ python -m pip install --force-reinstall sentence-transformers
 
 - `generation.py` posts to the Ollama API. If you don't run Ollama locally, you can replace the generation call with a stub that returns a list of canned responses for testing.
 
-## Cleanup helpers
 
-You can remove transient files and caches with (PowerShell):
-
-```powershell
-# remove __pycache__ directories recursively
-Get-ChildItem -Path . -Recurse -Force -Directory -Filter "__pycache__" | ForEach-Object { Remove-Item $_.FullName -Recurse -Force }
-
-# remove the venv if you want to recreate it
-Remove-Item -LiteralPath .venv-hallu-detect -Recurse -Force
-```
-
-## Reproducibility & contributing
-
-- If you make changes to dependencies, update `requirements.txt` by recreating the venv and running `python -m pip freeze > requirements.txt`.
-- Consider using a `requirements.in` + `pip-compile` workflow (pip-tools) or Poetry/Poetry2nix for cleaner dependency management.
-
-## Contact / Notes
-
-This README is a quick-start. If you want, I can:
-- Commit `requirements.txt` (I already created it) and README for you.
-- Create a minimal `requirements-min.txt` with only direct dependencies.
-- Add a small stub mode to `generation.py` to run the runner without Ollama.
-
-# UnitConverter Project
